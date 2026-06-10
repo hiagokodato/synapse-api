@@ -119,4 +119,30 @@ npm run dev
 | `PATCH` | `/chatbots/:chatbotId/flows/:flowId` | Update flow (publish bumps version) |
 | `DELETE` | `/chatbots/:chatbotId/flows/:flowId` | Delete flow |
 
+### Conversations (Bearer required)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/chatbots/:chatbotId/conversations` | List conversations |
+| `POST` | `/chatbots/:chatbotId/conversations` | Start conversation |
+| `GET` | `/chatbots/:chatbotId/conversations/:id` | Get with recent messages |
+| `PATCH` | `/chatbots/:chatbotId/conversations/:id` | Update status/metadata |
+
+### Messages (Bearer required)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `.../conversations/:id/messages` | List messages |
+| `POST` | `.../conversations/:id/messages` | Send message (REST) |
+
+### WebSocket (`/realtime`)
+
+Connect with JWT via `auth.token`, `?token=`, or `Authorization: Bearer`.
+
+| Event | Direction | Payload |
+|-------|-----------|---------|
+| `conversation:join` | Client → Server | `{ chatbotId, conversationId }` |
+| `message:send` | Client → Server | `{ chatbotId, conversationId, content, role? }` |
+| `message:new` | Server → Room | Saved message object |
+
 Swagger UI: http://localhost:3000/docs
