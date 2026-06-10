@@ -57,3 +57,46 @@ src/
  ├── prisma/
  ├── config/
  └── main.ts
+
+---
+
+# 🛠️ Getting Started
+
+## Prerequisites
+
+- Node.js 20+
+- Docker (for local PostgreSQL)
+
+## Setup
+
+```bash
+cp .env.example .env
+# Edit JWT secrets before running in production
+
+docker compose up -d
+npm install
+npm run db:migrate
+npm run dev
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start API in watch mode |
+| `npm run build` | Compile for production |
+| `npm run db:migrate` | Run Prisma migrations |
+| `npm run db:studio` | Open Prisma Studio |
+
+## Endpoints (v1)
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `GET` | `/health` | No | Health check |
+| `POST` | `/auth/register` | No | Create account |
+| `POST` | `/auth/login` | No | Login |
+| `POST` | `/auth/refresh` | No | Rotate tokens |
+| `POST` | `/auth/logout` | No | Revoke refresh token |
+| `GET` | `/auth/me` | Bearer | Current user |
+
+Swagger UI: http://localhost:3000/docs
