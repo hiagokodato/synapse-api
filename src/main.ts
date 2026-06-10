@@ -11,10 +11,26 @@ async function bootstrap() {
 
   const port = config.get<number>('port', 3000)
   const corsOrigin = config.get<string>('corsOrigin', 'http://localhost:5173')
+  const allowedOrigins = corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean)
 
   app.setGlobalPrefix('v1')
   app.enableCors({
-    origin: corsOrigin.split(',').map((origin) => origin.trim()),
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true)
+        return
+      }
+
+      const isListed = allowedOrigins.includes(origin)
+      const isVercelPreview = origin.endsWith('.vercel.app')
+
+      if (isListed || isVercelPreview) {
+        callback(null, true)
+        return
+      }
+
+      callback(null, false)
+    },
     credentials: true,
   })
 
