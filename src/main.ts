@@ -2,6 +2,7 @@ import { Logger, ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface'
 
 import { AppModule } from './app.module'
 
@@ -13,26 +14,24 @@ async function bootstrap() {
   const corsOrigin = config.get<string>('corsOrigin', 'http://localhost:5173')
   const allowedOrigins = corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean)
 
+  const isOriginAllowed = (origin: string) =>
+    allowedOrigins.includes(origin) || /\.vercel\.app$/i.test(origin)
+
   app.setGlobalPrefix('v1')
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true)
+    origin: ((origin, callback) => {
+      if (!origin || isOriginAllowed(origin)) {
+        callback(null, origin ?? true)
         return
       }
 
-      const isListed = allowedOrigins.includes(origin)
-      const isVercelPreview = origin.endsWith('.vercel.app')
-
-      if (isListed || isVercelPreview) {
-        callback(null, true)
-        return
-      }
-
+      Logger.warn(`Blocked CORS origin: ${origin}`, 'CORS')
       callback(null, false)
-    },
+    }) satisfies CorsOptions['origin'],
     credentials: true,
   })
+
+  Logger.log(`CORS allowed origins: ${allowedOrigins.join(', ')} + *.vercel.app`, 'Bootstrap')
 
   app.useGlobalPipes(
     new ValidationPipe({
