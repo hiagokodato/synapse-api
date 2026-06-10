@@ -65,14 +65,23 @@ src/
 ## Prerequisites
 
 - Node.js 20+
-- Docker (for local PostgreSQL)
+- PostgreSQL ([Neon](https://neon.tech) recommended) or Docker locally
 
-## Setup
+## Setup (Neon)
 
 ```bash
 cp .env.example .env
-# Edit JWT secrets before running in production
+# Set DATABASE_URL (Neon pooled URL) and JWT secrets
 
+npm install
+npm run db:deploy
+npm run dev
+```
+
+## Setup (Docker local)
+
+```bash
+cp .env.example .env
 docker compose up -d
 npm install
 npm run db:migrate
@@ -85,8 +94,18 @@ npm run dev
 |---------|-------------|
 | `npm run dev` | Start API in watch mode |
 | `npm run build` | Compile for production |
-| `npm run db:migrate` | Run Prisma migrations |
+| `npm run start:prod` | Migrate + start (Railway/production) |
+| `npm run db:migrate` | Dev migrations (interactive) |
+| `npm run db:deploy` | Apply migrations (Neon/production) |
 | `npm run db:studio` | Open Prisma Studio |
+
+## Deploy (Railway + Neon)
+
+1. Create Neon project → copy **pooled** `DATABASE_URL`
+2. Railway → deploy from GitHub → branch `main`
+3. Variables: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CORS_ORIGIN`
+4. **Build:** `npm install && npm run build`
+5. **Start:** `npm run start:prod`
 
 ## Endpoints (v1)
 
