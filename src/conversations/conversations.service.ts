@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 
 import { ChatbotService } from '../chatbot/chatbot.service'
+import { FlowEngineService } from '../flow-engine/flow-engine.service'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateConversationDto } from './dto/create-conversation.dto'
 import type { UpdateConversationDto } from './dto/update-conversation.dto'
@@ -22,6 +23,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatbots: ChatbotService,
+    private readonly flowEngine: FlowEngineService,
   ) {}
 
   async listForChatbot(chatbotId: string, userId: string) {
@@ -65,7 +67,7 @@ export class ConversationsService {
   async create(chatbotId: string, userId: string, dto: CreateConversationDto) {
     await this.chatbots.getForUser(chatbotId, userId)
 
-    return this.prisma.conversation.create({
+    const conversation = await this.prisma.conversation.create({
       data: {
         chatbotId,
         externalId: dto.externalId,
@@ -73,6 +75,10 @@ export class ConversationsService {
       },
       select: conversationSelect,
     })
+
+    await this.flowEngine.startConversation(chatbotId, conversation.id)
+
+    return conversation
   }
 
   async update(

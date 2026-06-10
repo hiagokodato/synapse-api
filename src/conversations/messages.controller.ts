@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { AuthUser } from '../auth/auth.types'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
+import { FlowEngineService } from '../flow-engine/flow-engine.service'
 import { CreateMessageDto } from './dto/create-message.dto'
 import { MessagesService } from './messages.service'
 
@@ -12,7 +13,10 @@ import { MessagesService } from './messages.service'
 @UseGuards(JwtAuthGuard)
 @Controller('chatbots/:chatbotId/conversations/:conversationId/messages')
 export class MessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly flowEngine: FlowEngineService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List messages in a conversation' })
@@ -26,12 +30,18 @@ export class MessagesController {
 
   @Post()
   @ApiOperation({ summary: 'Send a message (REST fallback)' })
-  create(
+  async create(
     @CurrentUser() user: AuthUser,
     @Param('chatbotId') chatbotId: string,
     @Param('conversationId') conversationId: string,
     @Body() dto: CreateMessageDto,
   ) {
-    return this.messages.create(chatbotId, conversationId, user.id, dto)
+    const message = await this.messages.create(chatbotId, conversationId, user.id, dto)
+
+    if ((dto.role ?? 'USER') === 'USER') {
+      await this.flowEngine.handleUserMessage(chatbotId, conversationId)
+    }
+
+    return message
   }
 }

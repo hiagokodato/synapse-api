@@ -13,6 +13,7 @@ import type { Server, Socket } from 'socket.io'
 
 import type { AuthUser } from '../auth/auth.types'
 import { MessagesService } from '../conversations/messages.service'
+import { FlowEngineService } from '../flow-engine/flow-engine.service'
 import { WsAuthService } from './ws-auth.service'
 
 type AuthedSocket = Socket & { user?: AuthUser }
@@ -42,6 +43,7 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
   constructor(
     private readonly wsAuth: WsAuthService,
     private readonly messages: MessagesService,
+    private readonly flowEngine: FlowEngineService,
   ) {}
 
   async handleConnection(client: AuthedSocket) {
@@ -89,18 +91,31 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
       user.id,
     )
 
+    const role = payload.role ?? MessageRole.USER
+
     const message = await this.messages.create(
       payload.chatbotId,
       payload.conversationId,
       user.id,
       {
         content: payload.content,
-        role: payload.role ?? MessageRole.USER,
+        role,
       },
     )
 
     const room = this.roomName(payload.conversationId)
     this.server.to(room).emit('message:new', message)
+
+    if (role === MessageRole.USER) {
+      const botMessages = await this.flowEngine.handleUserMessage(
+        payload.chatbotId,
+        payload.conversationId,
+      )
+
+      for (const botMessage of botMessages) {
+        this.server.to(room).emit('message:new', botMessage)
+      }
+    }
 
     return message
   }

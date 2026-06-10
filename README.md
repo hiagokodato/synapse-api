@@ -50,6 +50,7 @@ src/
  ├── auth/
  ├── chatbot/
  ├── conversations/
+ ├── flow-engine/   # Interprets published React Flow graphs
  ├── analytics/
  ├── integrations/
  ├── websocket/
@@ -57,6 +58,30 @@ src/
  ├── prisma/
  ├── config/
  └── main.ts
+```
+
+## Flow engine
+
+When a chatbot has a **published** flow, the engine drives bot replies automatically:
+
+1. **New conversation** — walks from the `start` node, sends `message` nodes as `BOT` messages, stops at `question` or `end`.
+2. **User reply (WebSocket/REST)** — after a `USER` message, if the engine is waiting at a `question` node, it advances along the edge and continues.
+3. **State** — stored in `conversation.metadata.flowEngine` (`flowId`, `currentNodeId`, `awaitingInput`).
+4. **End node** — sends a closing message and sets conversation status to `CLOSED`.
+
+Supported node types: `start`, `message`, `question`, `end` (same schema as synapse-web flow builder).
+
+---
+
+# 🌐 Production
+
+| Resource | URL |
+|----------|-----|
+| **API** | https://synapse-api-production-5368.up.railway.app/v1 |
+| **Swagger** | https://synapse-api-production-5368.up.railway.app/docs |
+| **Health** | https://synapse-api-production-5368.up.railway.app/v1/health |
+| **WebSocket** | `wss://synapse-api-production-5368.up.railway.app/realtime` |
+| **Web (frontend)** | https://synapse-web-mocha.vercel.app |
 
 ---
 
@@ -162,7 +187,7 @@ Connect with JWT via `auth.token`, `?token=`, or `Authorization: Bearer`.
 |-------|-----------|---------|
 | `conversation:join` | Client → Server | `{ chatbotId, conversationId }` |
 | `message:send` | Client → Server | `{ chatbotId, conversationId, content, role? }` |
-| `message:new` | Server → Room | Saved message object |
+| `message:new` | Server → Room | Saved message object (USER and BOT replies) |
 
 ### Analytics (Bearer required)
 

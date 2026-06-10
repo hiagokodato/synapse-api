@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common'
 
 import { AuthModule } from '../auth/auth.module'
 import { ChatbotModule } from '../chatbot/chatbot.module'
+import { FlowEngineModule } from '../flow-engine/flow-engine.module'
 import { ConversationsController } from './conversations.controller'
 import { ConversationsService } from './conversations.service'
 import { MessagesController } from './messages.controller'
 import { MessagesService } from './messages.service'
 
 @Module({
-  imports: [AuthModule, ChatbotModule],
+  imports: [AuthModule, ChatbotModule, FlowEngineModule],
   controllers: [ConversationsController, MessagesController],
   providers: [ConversationsService, MessagesService],
   exports: [ConversationsService, MessagesService],
