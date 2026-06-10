@@ -145,4 +145,11 @@ Connect with JWT via `auth.token`, `?token=`, or `Authorization: Bearer`.
 | `message:send` | Client → Server | `{ chatbotId, conversationId, content, role? }` |
 | `message:new` | Server → Room | Saved message object |
 
+### Analytics (Bearer required)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/analytics/overview` | Metrics across all user chatbots |
+| `GET` | `/chatbots/:chatbotId/analytics?days=7` | Per-chatbot metrics + daily message chart |
+
 Swagger UI: http://localhost:3000/docs
