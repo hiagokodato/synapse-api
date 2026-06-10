@@ -99,4 +99,24 @@ npm run dev
 | `POST` | `/auth/logout` | No | Revoke refresh token |
 | `GET` | `/auth/me` | Bearer | Current user |
 
+### Chatbots (Bearer required)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/chatbots` | List user's chatbots |
+| `POST` | `/chatbots` | Create chatbot |
+| `GET` | `/chatbots/:chatbotId` | Get chatbot |
+| `PATCH` | `/chatbots/:chatbotId` | Update chatbot |
+| `DELETE` | `/chatbots/:chatbotId` | Delete chatbot |
+
+### Flows (Bearer required)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/chatbots/:chatbotId/flows` | List flows |
+| `POST` | `/chatbots/:chatbotId/flows` | Create flow (`definition` JSON) |
+| `GET` | `/chatbots/:chatbotId/flows/:flowId` | Get flow |
+| `PATCH` | `/chatbots/:chatbotId/flows/:flowId` | Update flow (publish bumps version) |
+| `DELETE` | `/chatbots/:chatbotId/flows/:flowId` | Delete flow |
+
 Swagger UI: http://localhost:3000/docs
