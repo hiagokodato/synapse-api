@@ -20,11 +20,12 @@ const VALID_NODE_TYPES: FlowNodeType[] = [
   'message',
   'question',
   'options',
+  'list',
   'input',
   'end',
 ]
 
-const AWAITING_TYPES = new Set<FlowNodeType>(['question', 'options', 'input'])
+const AWAITING_TYPES = new Set<FlowNodeType>(['question', 'options', 'list', 'input'])
 
 export function validateFlowDefinition(raw: unknown): FlowValidationResult {
   const issues: FlowValidationIssue[] = []
@@ -97,7 +98,7 @@ export function validateFlowDefinition(raw: unknown): FlowValidationResult {
 
     const data = (node.data ?? {}) as Record<string, unknown>
 
-    if (type === 'options') {
+    if (type === 'options' || type === 'list') {
       const options = Array.isArray(data.options) ? data.options : []
       if (options.length === 0) {
         add({
@@ -107,6 +108,15 @@ export function validateFlowDefinition(raw: unknown): FlowValidationResult {
           nodeId: id,
         })
       }
+    }
+
+    if (type === 'list' && (typeof data.variable !== 'string' || !data.variable.trim())) {
+      add({
+        level: 'warning',
+        code: 'list_without_variable',
+        message: 'O bloco de lista não tem uma variável definida; a seleção não será salva.',
+        nodeId: id,
+      })
     }
 
     if (type === 'input' && (typeof data.variable !== 'string' || !data.variable.trim())) {

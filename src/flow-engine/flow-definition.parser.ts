@@ -11,6 +11,7 @@ const VALID_NODE_TYPES: FlowNodeType[] = [
   'message',
   'question',
   'options',
+  'list',
   'input',
   'end',
 ]
@@ -100,6 +101,7 @@ export function parseFlowDefinition(raw: unknown): FlowDefinition | null {
         invalidMessage:
           typeof data?.invalidMessage === 'string' ? data.invalidMessage : undefined,
         listOptions: typeof data?.listOptions === 'boolean' ? data.listOptions : undefined,
+        multiple: typeof data?.multiple === 'boolean' ? data.multiple : undefined,
       },
     })
   }

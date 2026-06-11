@@ -51,3 +51,34 @@ export function matchOption(content: string, options: FlowOption[]): FlowOption 
 
   return null
 }
+
+/**
+ * Matches a free-text reply that may contain several selections at once
+ * (e.g. "1, 3", "azul e verde", "a; b"). Returns the matched options in the
+ * order they were selected, without duplicates.
+ */
+export function matchOptions(content: string, options: FlowOption[]): FlowOption[] {
+  if (!content || options.length === 0) {
+    return []
+  }
+
+  const tokens = content
+    .split(/[,;/\n]+|\s+e\s+|\s+and\s+/i)
+    .map((token) => token.trim())
+    .filter(Boolean)
+
+  const candidates = tokens.length > 0 ? tokens : [content]
+
+  const selected: FlowOption[] = []
+  const seen = new Set<string>()
+
+  for (const token of candidates) {
+    const option = matchOption(token, options)
+    if (option && !seen.has(option.id)) {
+      seen.add(option.id)
+      selected.push(option)
+    }
+  }
+
+  return selected
+}

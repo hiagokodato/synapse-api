@@ -4,7 +4,7 @@ import { ConversationStatus, MessageRole, type Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { parseFlowDefinition } from './flow-definition.parser'
 import { interpolate } from './interpolate'
-import { matchOption } from './match-option'
+import { matchOption, matchOptions } from './match-option'
 import { resolveYesNoBranch } from './resolve-yes-no'
 import { validateInput } from './validate-input'
 import type {
@@ -129,6 +129,27 @@ export class FlowEngineService {
             await this.saveVariables(conversationId, variables)
           }
           return this.advance(conversationId, definition, flow.id, currentNode.id, option.id, variables)
+        }
+        return this.handleUnresolved(conversationId, definition, flow.id, currentNode, state, variables)
+      }
+
+      case 'list': {
+        const matched = lastUserMessage
+          ? matchOptions(lastUserMessage, currentNode.data?.options ?? [])
+          : []
+
+        if (matched.length > 0) {
+          const allowMultiple = currentNode.data?.multiple !== false
+          const chosen = allowMultiple ? matched : [matched[0]]
+
+          if (currentNode.data?.variable) {
+            variables[currentNode.data.variable] = chosen
+              .map((option) => option.value ?? option.label)
+              .join(', ')
+            await this.saveVariables(conversationId, variables)
+          }
+
+          return this.advance(conversationId, definition, flow.id, currentNode.id, null, variables)
         }
         return this.handleUnresolved(conversationId, definition, flow.id, currentNode, state, variables)
       }
@@ -264,6 +285,7 @@ export class FlowEngineService {
 
         case 'question':
         case 'options':
+        case 'list':
         case 'input': {
           const content = this.composeNodeMessage(node, variables)
           messages.push(await this.createBotMessage(conversationId, node, flowId, content))
@@ -363,7 +385,7 @@ export class FlowEngineService {
     let content = interpolate(base, variables)
 
     if (
-      node.type === 'options' &&
+      (node.type === 'options' || node.type === 'list') &&
       node.data?.options?.length &&
       node.data.listOptions !== false
     ) {
