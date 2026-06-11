@@ -29,6 +29,11 @@ enum MessageRole {
   SYSTEM
 }
 
+enum IntegrationProvider {
+  TELEGRAM
+  WHATSAPP
+}
+
 model User {
   id           String         @id @default(cuid())
   email        String         @unique
@@ -63,6 +68,7 @@ model Chatbot {
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   flows         Flow[]
   conversations Conversation[]
+  integrations  Integration[]
 
   @@index([userId])
 }
@@ -94,6 +100,23 @@ model Conversation {
 
   @@index([chatbotId])
   @@index([externalId])
+}
+
+model Integration {
+  id            String              @id @default(cuid())
+  chatbotId     String
+  provider      IntegrationProvider
+  enabled       Boolean             @default(true)
+  credentials   Json                @default("{}")
+  webhookSecret String              @unique
+  externalRef   String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  chatbot       Chatbot             @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@unique([chatbotId, provider])
+  @@index([chatbotId])
+  @@index([externalRef])
 }
 
 model Message {
