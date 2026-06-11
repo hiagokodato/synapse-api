@@ -35,3 +35,13 @@ export class UpdateFlowDto {
   @IsBoolean()
   published?: boolean
 }
+
+export class ValidateFlowDto {
+  @ApiPropertyOptional({
+    example: { nodes: [], edges: [] },
+    description: 'Definition to validate. When omitted, the stored flow is validated.',
+  })
+  @IsOptional()
+  @IsObject()
+  definition?: Record<string, unknown>
+}
