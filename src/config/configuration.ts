@@ -2,6 +2,7 @@ export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  publicUrl: (process.env.PUBLIC_BASE_URL ?? '').replace(/\/+$/, ''),
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,
     refreshSecret: process.env.JWT_REFRESH_SECRET,

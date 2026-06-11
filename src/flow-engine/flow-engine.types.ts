@@ -1,4 +1,11 @@
-export type FlowNodeType = 'start' | 'message' | 'question' | 'options' | 'input' | 'end'
+export type FlowNodeType =
+  | 'start'
+  | 'message'
+  | 'question'
+  | 'options'
+  | 'list'
+  | 'input'
+  | 'end'
 
 export type FlowInputType = 'text' | 'email' | 'phone' | 'number' | 'cpf'
 
@@ -26,6 +33,8 @@ export type FlowNode = {
     invalidMessage?: string
     /** When false, options are not appended to the bot message text. */
     listOptions?: boolean
+    /** For the "list" node: allow the user to pick more than one option. */
+    multiple?: boolean
   }
 }
 
