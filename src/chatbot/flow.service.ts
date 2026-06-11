@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 
+import { validateFlowDefinition } from '../flow-engine/flow-validator'
 import { PrismaService } from '../prisma/prisma.service'
 import { ChatbotService } from './chatbot.service'
 import type { CreateFlowDto, UpdateFlowDto } from './dto/flow.dto'
@@ -64,6 +65,17 @@ export class FlowService {
   async update(chatbotId: string, flowId: string, userId: string, dto: UpdateFlowDto) {
     const existing = await this.getForChatbot(chatbotId, flowId, userId)
 
+    if (dto.published === true) {
+      const target = dto.definition ?? existing.definition
+      const validation = validateFlowDefinition(target)
+      if (!validation.valid) {
+        throw new BadRequestException({
+          message: 'O fluxo não pode ser publicado porque contém erros.',
+          issues: validation.issues,
+        })
+      }
+    }
+
     const shouldBumpVersion = dto.published === true && !existing.published
 
     return this.prisma.flow.update({
@@ -81,5 +93,15 @@ export class FlowService {
   async remove(chatbotId: string, flowId: string, userId: string) {
     await this.getForChatbot(chatbotId, flowId, userId)
     await this.prisma.flow.delete({ where: { id: flowId } })
+  }
+
+  async validate(
+    chatbotId: string,
+    flowId: string,
+    userId: string,
+    definition?: Record<string, unknown>,
+  ) {
+    const flow = await this.getForChatbot(chatbotId, flowId, userId)
+    return validateFlowDefinition(definition ?? flow.definition)
   }
 }

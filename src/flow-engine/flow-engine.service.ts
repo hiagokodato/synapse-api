@@ -3,12 +3,17 @@ import { ConversationStatus, MessageRole, type Prisma } from '@prisma/client'
 
 import { PrismaService } from '../prisma/prisma.service'
 import { parseFlowDefinition } from './flow-definition.parser'
+import { interpolate } from './interpolate'
+import { matchOption } from './match-option'
+import { resolveYesNoBranch } from './resolve-yes-no'
+import { validateInput } from './validate-input'
 import type {
   BotMessageRecord,
   ConversationMetadata,
   FlowDefinition,
   FlowEngineState,
   FlowNode,
+  FlowVariables,
 } from './flow-engine.types'
 
 const messageSelect = {
@@ -19,6 +24,8 @@ const messageSelect = {
   metadata: true,
   createdAt: true,
 } satisfies Prisma.MessageSelect
+
+const FALLBACK_HANDLE = 'fallback'
 
 @Injectable()
 export class FlowEngineService {
@@ -51,13 +58,15 @@ export class FlowEngineService {
       return []
     }
 
+    const variables = await this.loadVariables(conversationId)
+
     await this.updateFlowState(conversationId, {
       flowId: flow.id,
       currentNodeId: startNode.id,
       awaitingInput: false,
     })
 
-    return this.runFromNode(conversationId, definition, flow.id, firstTarget)
+    return this.runFromNode(conversationId, definition, flow.id, firstTarget, variables)
   }
 
   async handleUserMessage(chatbotId: string, conversationId: string): Promise<BotMessageRecord[]> {
@@ -91,13 +100,119 @@ export class FlowEngineService {
       return []
     }
 
-    const nextNodeId = this.getNextNodeId(definition, state.currentNodeId)
-    if (!nextNodeId) {
+    const currentNode = definition.nodes.find((node) => node.id === state.currentNodeId)
+    if (!currentNode) {
       await this.updateFlowState(conversationId, { ...state, awaitingInput: false })
       return []
     }
 
-    return this.runFromNode(conversationId, definition, flow.id, nextNodeId)
+    const variables: FlowVariables = { ...(metadata.variables ?? {}) }
+    const lastUserMessage = await this.getLastUserMessage(conversationId)
+
+    switch (currentNode.type) {
+      case 'question': {
+        const branch = lastUserMessage ? resolveYesNoBranch(lastUserMessage) : null
+        if (branch) {
+          return this.advance(conversationId, definition, flow.id, currentNode.id, branch, variables)
+        }
+        return this.handleUnresolved(conversationId, definition, flow.id, currentNode, state, variables)
+      }
+
+      case 'options': {
+        const option = lastUserMessage
+          ? matchOption(lastUserMessage, currentNode.data?.options ?? [])
+          : null
+
+        if (option) {
+          if (currentNode.data?.variable) {
+            variables[currentNode.data.variable] = option.value ?? option.label
+            await this.saveVariables(conversationId, variables)
+          }
+          return this.advance(conversationId, definition, flow.id, currentNode.id, option.id, variables)
+        }
+        return this.handleUnresolved(conversationId, definition, flow.id, currentNode, state, variables)
+      }
+
+      case 'input': {
+        const result = validateInput(lastUserMessage ?? '', currentNode.data?.inputType)
+        if (result.valid) {
+          if (currentNode.data?.variable) {
+            variables[currentNode.data.variable] = result.value
+            await this.saveVariables(conversationId, variables)
+          }
+          return this.advance(conversationId, definition, flow.id, currentNode.id, null, variables)
+        }
+        return this.handleUnresolved(conversationId, definition, flow.id, currentNode, state, variables)
+      }
+
+      default: {
+        return this.advance(conversationId, definition, flow.id, currentNode.id, null, variables)
+      }
+    }
+  }
+
+  private async advance(
+    conversationId: string,
+    definition: FlowDefinition,
+    flowId: string,
+    currentNodeId: string,
+    sourceHandle: string | null,
+    variables: FlowVariables,
+  ): Promise<BotMessageRecord[]> {
+    const next = this.getNextNodeId(definition, currentNodeId, sourceHandle)
+    if (!next) {
+      await this.updateFlowState(conversationId, {
+        flowId,
+        currentNodeId,
+        awaitingInput: false,
+      })
+      return []
+    }
+
+    return this.runFromNode(conversationId, definition, flowId, next, variables)
+  }
+
+  private async handleUnresolved(
+    conversationId: string,
+    definition: FlowDefinition,
+    flowId: string,
+    node: FlowNode,
+    state: FlowEngineState,
+    variables: FlowVariables,
+  ): Promise<BotMessageRecord[]> {
+    const maxAttempts = node.data?.maxAttempts ?? 0
+    const attempts = state.attempts ?? 0
+
+    if (attempts < maxAttempts) {
+      const content = this.composeNodeMessage(node, variables, this.defaultInvalidMessage(node))
+      const botMessage = await this.createBotMessage(conversationId, node, flowId, content)
+
+      await this.updateFlowState(conversationId, {
+        flowId,
+        currentNodeId: node.id,
+        awaitingInput: true,
+        attempts: attempts + 1,
+      })
+
+      return [botMessage]
+    }
+
+    const fallbackTarget = this.getTargetByHandle(definition, node.id, FALLBACK_HANDLE)
+    if (fallbackTarget) {
+      return this.runFromNode(conversationId, definition, flowId, fallbackTarget, variables)
+    }
+
+    const defaultTarget = this.getDefaultTarget(definition, node.id)
+    if (defaultTarget) {
+      return this.runFromNode(conversationId, definition, flowId, defaultTarget, variables)
+    }
+
+    await this.updateFlowState(conversationId, {
+      flowId,
+      currentNodeId: node.id,
+      awaitingInput: false,
+    })
+    return []
   }
 
   private async runFromNode(
@@ -105,6 +220,7 @@ export class FlowEngineService {
     definition: FlowDefinition,
     flowId: string,
     startNodeId: string,
+    variables: FlowVariables,
   ): Promise<BotMessageRecord[]> {
     const messages: BotMessageRecord[] = []
     let currentNodeId: string | null = startNodeId
@@ -129,8 +245,8 @@ export class FlowEngineService {
         }
 
         case 'message': {
-          const botMessage = await this.createBotMessage(conversationId, node, flowId)
-          messages.push(botMessage)
+          const content = this.composeNodeMessage(node, variables)
+          messages.push(await this.createBotMessage(conversationId, node, flowId, content))
 
           const next = this.getNextNodeId(definition, node.id)
           if (!next) {
@@ -146,27 +262,25 @@ export class FlowEngineService {
           continue
         }
 
-        case 'question': {
-          const botMessage = await this.createBotMessage(conversationId, node, flowId)
-          messages.push(botMessage)
+        case 'question':
+        case 'options':
+        case 'input': {
+          const content = this.composeNodeMessage(node, variables)
+          messages.push(await this.createBotMessage(conversationId, node, flowId, content))
 
           await this.updateFlowState(conversationId, {
             flowId,
             currentNodeId: node.id,
             awaitingInput: true,
+            attempts: 0,
           })
 
           return messages
         }
 
         case 'end': {
-          const botMessage = await this.createBotMessage(
-            conversationId,
-            node,
-            flowId,
-            node.data?.text?.trim() || node.data?.label?.trim() || 'Conversa encerrada.',
-          )
-          messages.push(botMessage)
+          const content = this.composeNodeMessage(node, variables, 'Conversa encerrada.')
+          messages.push(await this.createBotMessage(conversationId, node, flowId, content))
 
           await this.closeConversation(conversationId, flowId, node.id)
           return messages
@@ -193,32 +307,105 @@ export class FlowEngineService {
     })
   }
 
-  private getNextNodeId(definition: FlowDefinition, nodeId: string): string | null {
-    const edge = definition.edges.find((item) => item.source === nodeId)
-    return edge?.target ?? null
+  private async getLastUserMessage(conversationId: string): Promise<string | null> {
+    const message = await this.prisma.message.findFirst({
+      where: { conversationId, role: MessageRole.USER },
+      orderBy: { createdAt: 'desc' },
+      select: { content: true },
+    })
+
+    return message?.content ?? null
   }
 
-  private nodeContent(node: FlowNode, fallback?: string): string {
-    const text = node.data?.text?.trim()
-    if (text) {
-      return text
+  private getNextNodeId(
+    definition: FlowDefinition,
+    nodeId: string,
+    sourceHandle?: string | null,
+  ): string | null {
+    if (sourceHandle) {
+      const matched = this.getTargetByHandle(definition, nodeId, sourceHandle)
+      if (matched) {
+        return matched
+      }
     }
 
-    const label = node.data?.label?.trim()
-    if (label) {
-      return label
+    return this.getDefaultTarget(definition, nodeId)
+  }
+
+  private getTargetByHandle(
+    definition: FlowDefinition,
+    nodeId: string,
+    sourceHandle: string,
+  ): string | null {
+    const matched = definition.edges.find(
+      (item) => item.source === nodeId && item.sourceHandle === sourceHandle,
+    )
+    return matched?.target ?? null
+  }
+
+  private getDefaultTarget(definition: FlowDefinition, nodeId: string): string | null {
+    const outgoing = definition.edges.filter((item) => item.source === nodeId)
+
+    const legacy = outgoing.find((item) => !item.sourceHandle)
+    if (legacy) {
+      return legacy.target
     }
 
-    return fallback ?? ''
+    return outgoing[0]?.target ?? null
+  }
+
+  private composeNodeMessage(
+    node: FlowNode,
+    variables: FlowVariables,
+    fallback?: string,
+  ): string {
+    const base = (node.data?.text?.trim() || node.data?.label?.trim() || fallback || '').trim()
+    let content = interpolate(base, variables)
+
+    if (
+      node.type === 'options' &&
+      node.data?.options?.length &&
+      node.data.listOptions !== false
+    ) {
+      const list = node.data.options
+        .map((option, index) => `${index + 1}. ${option.label}`)
+        .join('\n')
+      content = content ? `${content}\n${list}` : list
+    }
+
+    return content
+  }
+
+  private defaultInvalidMessage(node: FlowNode): string {
+    const custom = node.data?.invalidMessage?.trim()
+    if (custom) {
+      return custom
+    }
+
+    if (node.type === 'input') {
+      switch (node.data?.inputType) {
+        case 'email':
+          return 'Por favor, informe um e-mail válido.'
+        case 'phone':
+          return 'Por favor, informe um telefone válido.'
+        case 'number':
+          return 'Por favor, informe um número válido.'
+        case 'cpf':
+          return 'Por favor, informe um CPF válido.'
+        default:
+          return 'Por favor, tente novamente.'
+      }
+    }
+
+    return 'Desculpe, não entendi. Pode tentar novamente?'
   }
 
   private async createBotMessage(
     conversationId: string,
     node: FlowNode,
     flowId: string,
-    contentOverride?: string,
+    content: string,
   ): Promise<BotMessageRecord> {
-    const content = contentOverride ?? this.nodeContent(node)
     if (!content) {
       this.logger.warn(`Node ${node.id} in flow ${flowId} has no text content.`)
     }
@@ -243,6 +430,36 @@ export class FlowEngineService {
     })
 
     return message as BotMessageRecord
+  }
+
+  private async loadVariables(conversationId: string): Promise<FlowVariables> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { metadata: true },
+    })
+
+    const metadata = (conversation?.metadata ?? {}) as ConversationMetadata
+    return { ...(metadata.variables ?? {}) }
+  }
+
+  private async saveVariables(conversationId: string, variables: FlowVariables) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { metadata: true },
+    })
+
+    const metadata = (conversation?.metadata ?? {}) as ConversationMetadata
+
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        metadata: {
+          ...metadata,
+          variables: { ...(metadata.variables ?? {}), ...variables },
+        } as Prisma.InputJsonValue,
+        updatedAt: new Date(),
+      },
+    })
   }
 
   private async updateFlowState(conversationId: string, flowEngine: FlowEngineState) {
