@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { AuthUser } from '../auth/auth.types'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { CreateFlowDto, UpdateFlowDto } from './dto/flow.dto'
+import { CreateFlowDto, UpdateFlowDto, ValidateFlowDto } from './dto/flow.dto'
 import { FlowService } from './flow.service'
 
 @ApiTags('flows')
@@ -59,6 +59,18 @@ export class FlowController {
     @Body() dto: UpdateFlowDto,
   ) {
     return this.flows.update(chatbotId, flowId, user.id, dto)
+  }
+
+  @Post(':flowId/validate')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Validate a flow definition (errors and warnings)' })
+  validate(
+    @CurrentUser() user: AuthUser,
+    @Param('chatbotId') chatbotId: string,
+    @Param('flowId') flowId: string,
+    @Body() dto: ValidateFlowDto,
+  ) {
+    return this.flows.validate(chatbotId, flowId, user.id, dto.definition)
   }
 
   @Delete(':flowId')
