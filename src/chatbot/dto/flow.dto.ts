@@ -45,3 +45,34 @@ export class ValidateFlowDto {
   @IsObject()
   definition?: Record<string, unknown>
 }
+
+export class SimulateFlowDto {
+  @ApiPropertyOptional({
+    example: { nodes: [], edges: [] },
+    description: 'Draft definition to simulate. When omitted, the stored flow is used.',
+  })
+  @IsOptional()
+  @IsObject()
+  definition?: Record<string, unknown>
+
+  @ApiPropertyOptional({
+    description: 'User reply for the current step. When omitted, the simulation (re)starts.',
+  })
+  @IsOptional()
+  @IsString()
+  message?: string
+
+  @ApiPropertyOptional({
+    description: 'Simulation state returned by the previous call. Required to send a reply.',
+  })
+  @IsOptional()
+  @IsObject()
+  state?: { currentNodeId: string; awaitingInput: boolean; attempts: number }
+
+  @ApiPropertyOptional({
+    description: 'Variables captured so far in the simulation.',
+  })
+  @IsOptional()
+  @IsObject()
+  variables?: Record<string, string>
+}

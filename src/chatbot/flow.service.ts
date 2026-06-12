@@ -1,10 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 
+import { parseFlowDefinition } from '../flow-engine/flow-definition.parser'
+import {
+  simulateReply,
+  simulateStart,
+  type SimulationState,
+} from '../flow-engine/flow-runner'
 import { validateFlowDefinition } from '../flow-engine/flow-validator'
 import { PrismaService } from '../prisma/prisma.service'
 import { ChatbotService } from './chatbot.service'
-import type { CreateFlowDto, UpdateFlowDto } from './dto/flow.dto'
+import type { CreateFlowDto, SimulateFlowDto, UpdateFlowDto } from './dto/flow.dto'
 
 const flowSelect = {
   id: true,
@@ -103,5 +109,22 @@ export class FlowService {
   ) {
     const flow = await this.getForChatbot(chatbotId, flowId, userId)
     return validateFlowDefinition(definition ?? flow.definition)
+  }
+
+  async simulate(chatbotId: string, flowId: string, userId: string, dto: SimulateFlowDto) {
+    const flow = await this.getForChatbot(chatbotId, flowId, userId)
+
+    const definition = parseFlowDefinition(dto.definition ?? flow.definition)
+    if (!definition) {
+      throw new BadRequestException('A definição do fluxo é inválida e não pode ser simulada.')
+    }
+
+    const isReply = typeof dto.message === 'string' && !!dto.state
+    if (!isReply) {
+      return simulateStart(definition)
+    }
+
+    const state = dto.state as SimulationState
+    return simulateReply(definition, state, dto.variables ?? {}, dto.message ?? '')
   }
 }

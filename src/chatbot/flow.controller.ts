@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import type { AuthUser } from '../auth/auth.types'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { CurrentUser } from '../common/decorators/current-user.decorator'
-import { CreateFlowDto, UpdateFlowDto, ValidateFlowDto } from './dto/flow.dto'
+import { CreateFlowDto, SimulateFlowDto, UpdateFlowDto, ValidateFlowDto } from './dto/flow.dto'
 import { FlowService } from './flow.service'
 
 @ApiTags('flows')
@@ -71,6 +71,18 @@ export class FlowController {
     @Body() dto: ValidateFlowDto,
   ) {
     return this.flows.validate(chatbotId, flowId, user.id, dto.definition)
+  }
+
+  @Post(':flowId/simulate')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Simulate a flow definition in memory (no persistence)' })
+  simulate(
+    @CurrentUser() user: AuthUser,
+    @Param('chatbotId') chatbotId: string,
+    @Param('flowId') flowId: string,
+    @Body() dto: SimulateFlowDto,
+  ) {
+    return this.flows.simulate(chatbotId, flowId, user.id, dto)
   }
 
   @Delete(':flowId')
