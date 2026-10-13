@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common'
+import { Logger, UsePipes, ValidationPipe } from '@nestjs/common'
 import {
   ConnectedSocket,
   MessageBody,
@@ -7,6 +7,7 @@ import {
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
+  WsException,
 } from '@nestjs/websockets'
 import { MessageRole } from '@prisma/client'
 import type { Server, Socket } from 'socket.io'
@@ -14,26 +15,22 @@ import type { Server, Socket } from 'socket.io'
 import type { AuthUser } from '../auth/auth.types'
 import { MessagesService } from '../conversations/messages.service'
 import { FlowEngineService } from '../flow-engine/flow-engine.service'
+import { JoinConversationPayload, SendMessagePayload } from './dto/ws-payloads.dto'
 import { WsAuthService } from './ws-auth.service'
 
 type AuthedSocket = Socket & { user?: AuthUser }
 
-type JoinPayload = {
-  chatbotId: string
-  conversationId: string
-}
-
-type SendMessagePayload = {
-  chatbotId: string
-  conversationId: string
-  content: string
-  role?: MessageRole
-}
-
-@WebSocketGateway({
-  namespace: '/realtime',
-  cors: { origin: true, credentials: true },
-})
+// CORS do socket.io: definido em main.ts (CorsIoAdapter), com as mesmas origens do HTTP.
+@WebSocketGateway({ namespace: '/realtime' })
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+    exceptionFactory: (errors) =>
+      new WsException(errors.flatMap((error) => Object.values(error.constraints ?? {})).join('; ')),
+  }),
+)
 export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ConversationsGateway.name)
 
@@ -64,7 +61,7 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
   @SubscribeMessage('conversation:join')
   async joinConversation(
     @ConnectedSocket() client: AuthedSocket,
-    @MessageBody() payload: JoinPayload,
+    @MessageBody() payload: JoinConversationPayload,
   ) {
     const user = this.requireUser(client)
     await this.wsAuth.verifyConversationAccess(
@@ -91,30 +88,24 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
       user.id,
     )
 
-    const role = payload.role ?? MessageRole.USER
-
     const message = await this.messages.create(
       payload.chatbotId,
       payload.conversationId,
       user.id,
-      {
-        content: payload.content,
-        role,
-      },
+      { content: payload.content },
+      MessageRole.USER,
     )
 
     const room = this.roomName(payload.conversationId)
     this.server.to(room).emit('message:new', message)
 
-    if (role === MessageRole.USER) {
-      const botMessages = await this.flowEngine.handleUserMessage(
-        payload.chatbotId,
-        payload.conversationId,
-      )
+    const botMessages = await this.flowEngine.handleUserMessage(
+      payload.chatbotId,
+      payload.conversationId,
+    )
 
-      for (const botMessage of botMessages) {
-        this.server.to(room).emit('message:new', botMessage)
-      }
+    for (const botMessage of botMessages) {
+      this.server.to(room).emit('message:new', botMessage)
     }
 
     return message
@@ -133,11 +124,7 @@ export class ConversationsGateway implements OnGatewayConnection, OnGatewayDisco
       return authToken
     }
 
-    const queryToken = client.handshake.query?.token
-    if (typeof queryToken === 'string' && queryToken.length > 0) {
-      return queryToken
-    }
-
+    // Token por query string não é aceito: URLs vão parar em logs de proxy e servidor.
     const header = client.handshake.headers.authorization
     if (typeof header === 'string' && header.startsWith('Bearer ')) {
       return header.slice(7)

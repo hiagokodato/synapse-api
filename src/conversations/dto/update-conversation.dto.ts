@@ -2,6 +2,8 @@ import { ApiPropertyOptional } from '@nestjs/swagger'
 import { ConversationStatus } from '@prisma/client'
 import { IsEnum, IsObject, IsOptional } from 'class-validator'
 
+import { MaxJsonSize } from '../../common/validators/max-json-size'
+
 export class UpdateConversationDto {
   @ApiPropertyOptional({ enum: ConversationStatus })
   @IsOptional()
@@ -11,5 +13,6 @@ export class UpdateConversationDto {
   @ApiPropertyOptional({ example: { channel: 'web', tags: ['support'] } })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(4_000)
   metadata?: Record<string, unknown>
 }

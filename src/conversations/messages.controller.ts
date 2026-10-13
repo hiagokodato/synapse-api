@@ -37,10 +37,7 @@ export class MessagesController {
     @Body() dto: CreateMessageDto,
   ) {
     const message = await this.messages.create(chatbotId, conversationId, user.id, dto)
-
-    if ((dto.role ?? 'USER') === 'USER') {
-      await this.flowEngine.handleUserMessage(chatbotId, conversationId)
-    }
+    await this.flowEngine.handleUserMessage(chatbotId, conversationId)
 
     return message
   }

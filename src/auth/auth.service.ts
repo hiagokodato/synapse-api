@@ -152,6 +152,11 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex')
   }
 
+  /** Validade do refresh token em ms (também usada como maxAge do cookie). */
+  getRefreshTtlMs(): number {
+    return this.getRefreshExpiryDate().getTime() - Date.now()
+  }
+
   private getRefreshExpiryDate(): Date {
     const raw = this.config.get<string>('jwt.refreshExpiresIn', '7d')
     const match = /^(\d+)([dhms])$/.exec(raw)

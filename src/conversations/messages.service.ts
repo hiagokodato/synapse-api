@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { Prisma } from '@prisma/client'
+import { MessageRole, type Prisma } from '@prisma/client'
 
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from './conversations.service'
@@ -36,6 +36,7 @@ export class MessagesService {
     conversationId: string,
     userId: string,
     dto: CreateMessageDto,
+    role: MessageRole = MessageRole.USER,
   ) {
     await this.conversations.assertAccess(chatbotId, conversationId, userId)
 
@@ -43,7 +44,7 @@ export class MessagesService {
       data: {
         conversationId,
         content: dto.content,
-        role: dto.role ?? 'USER',
+        role,
         metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
       },
       select: messageSelect,

@@ -1,21 +1,26 @@
 import { Logger, ValidationPipe } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
+import type { NestExpressApplication } from '@nestjs/platform-express'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 
 import { AppModule } from './app.module'
+import { parseOrigins } from './config/configuration'
+import { CorsIoAdapter } from './websocket/cors-io.adapter'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  // rawBody: necessário para validar a assinatura HMAC dos webhooks do WhatsApp.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true })
   const config = app.get(ConfigService)
 
   const port = config.get<number>('port', 3000)
-  const corsOrigin = config.get<string>('corsOrigin', 'http://localhost:5173')
-  const allowedOrigins = corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean)
+  const allowedOrigins = parseOrigins(config.get<string>('corsOrigin'))
 
   app.setGlobalPrefix('v1')
-  app.enableCors({ origin: true, credentials: true })
-  Logger.log(`CORS enabled (reflect origin). Configured origins: ${allowedOrigins.join(', ')}`, 'Bootstrap')
+  app.useBodyParser('json', { limit: '200kb' })
+  app.enableCors({ origin: allowedOrigins, credentials: true })
+  app.useWebSocketAdapter(new CorsIoAdapter(app, allowedOrigins))
+  Logger.log(`CORS origins: ${allowedOrigins.join(', ')}`, 'Bootstrap')
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -25,19 +30,21 @@ async function bootstrap() {
     }),
   )
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Synapse API')
-    .setDescription('Backend for the Synapse conversational platform')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build()
+  if (config.get<boolean>('swaggerEnabled')) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Synapse API')
+      .setDescription('Backend for the Synapse conversational platform')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build()
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig)
-  SwaggerModule.setup('docs', app, document)
+    const document = SwaggerModule.createDocument(app, swaggerConfig)
+    SwaggerModule.setup('docs', app, document)
+    Logger.log(`Swagger docs at http://localhost:${port}/docs`, 'Bootstrap')
+  }
 
   await app.listen(port)
   Logger.log(`Synapse API listening on http://localhost:${port}/v1`, 'Bootstrap')
-  Logger.log(`Swagger docs at http://localhost:${port}/docs`, 'Bootstrap')
 }
 
 bootstrap()

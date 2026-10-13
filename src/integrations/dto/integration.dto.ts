@@ -31,6 +31,12 @@ export class CreateIntegrationDto {
   @IsString()
   @MaxLength(200)
   verifyToken?: string
+
+  @ApiPropertyOptional({ description: 'Meta App Secret — validates webhook signatures (provider WHATSAPP)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  appSecret?: string
 }
 
 export class UpdateIntegrationDto {
@@ -63,4 +69,10 @@ export class UpdateIntegrationDto {
   @IsString()
   @MaxLength(200)
   verifyToken?: string
+
+  @ApiPropertyOptional({ description: 'Meta App Secret — validates webhook signatures (provider WHATSAPP)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  appSecret?: string
 }

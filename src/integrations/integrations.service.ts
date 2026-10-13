@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 import {
   BadRequestException,
@@ -17,6 +17,7 @@ import {
 } from '@prisma/client'
 
 import { ChatbotService } from '../chatbot/chatbot.service'
+import { CredentialsCipher } from '../common/crypto/credentials-cipher'
 import { FlowEngineService } from '../flow-engine/flow-engine.service'
 import { PrismaService } from '../prisma/prisma.service'
 import type { CreateIntegrationDto, UpdateIntegrationDto } from './dto/integration.dto'
@@ -32,16 +33,28 @@ import {
 } from './providers/telegram.client'
 import { sendWhatsappMessage } from './providers/whatsapp.client'
 
+/** Mensagens que chegam dos canais são cortadas neste tamanho (mesmo limite do CreateMessageDto). */
+const MAX_INBOUND_TEXT = 4000
+
+function safeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
 @Injectable()
 export class IntegrationsService {
   private readonly logger = new Logger(IntegrationsService.name)
+  private readonly cipher: CredentialsCipher
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly chatbots: ChatbotService,
     private readonly flowEngine: FlowEngineService,
-  ) {}
+  ) {
+    this.cipher = new CredentialsCipher(this.config.get<string>('credentialsEncryptionKey', ''))
+  }
 
   async list(chatbotId: string, userId: string) {
     await this.chatbots.getForUser(chatbotId, userId)
@@ -64,7 +77,7 @@ export class IntegrationsService {
         data: {
           chatbotId,
           provider: dto.provider,
-          credentials: credentials as Prisma.InputJsonValue,
+          credentials: this.cipher.encrypt(credentials) as Prisma.InputJsonValue,
           webhookSecret,
           externalRef,
         },
@@ -89,7 +102,7 @@ export class IntegrationsService {
 
     const credentials = this.mergeCredentials(existing, dto)
     if (credentials) {
-      data.credentials = credentials as Prisma.InputJsonValue
+      data.credentials = this.cipher.encrypt(credentials) as Prisma.InputJsonValue
       data.externalRef = await this.resolveExternalRef(existing.provider, credentials)
     }
 
@@ -113,7 +126,7 @@ export class IntegrationsService {
       throw new BadRequestException('Configure PUBLIC_BASE_URL para registrar o webhook.')
     }
 
-    const { botToken } = asTelegramCredentials(integration.credentials)
+    const { botToken } = this.telegramCredentials(integration)
     await setTelegramWebhook(botToken, url, integration.webhookSecret)
     return { url }
   }
@@ -135,7 +148,7 @@ export class IntegrationsService {
     if (!token) {
       return false
     }
-    return asWhatsappCredentials(integration.credentials).verifyToken === token
+    return safeEqual(this.whatsappCredentials(integration).verifyToken, token)
   }
 
   async processInbound(integration: Integration, sender: string, text: string): Promise<void> {
@@ -165,7 +178,7 @@ export class IntegrationsService {
       data: {
         conversationId: conversation.id,
         role: MessageRole.USER,
-        content: text,
+        content: text.slice(0, MAX_INBOUND_TEXT),
         metadata: { channel } as Prisma.InputJsonValue,
       },
     })
@@ -187,14 +200,45 @@ export class IntegrationsService {
     }
   }
 
+  /** Telegram envia o secret_token registrado no setWebhook; sem ele (ou diferente), a requisição é descartada. */
+  matchesTelegramSecret(integration: Integration, header: string | undefined): boolean {
+    return !!header && safeEqual(header, integration.webhookSecret)
+  }
+
+  /** Confere X-Hub-Signature-256 = HMAC-SHA256(corpo bruto, App Secret) da Meta. */
+  matchesWhatsappSignature(
+    integration: Integration,
+    rawBody: Buffer | undefined,
+    signature: string | undefined,
+  ): boolean {
+    const { appSecret } = this.whatsappCredentials(integration)
+    if (!appSecret) {
+      this.logger.warn(`WhatsApp integration ${integration.id} has no appSecret; webhook rejected.`)
+      return false
+    }
+    if (!rawBody || !signature?.startsWith('sha256=')) {
+      return false
+    }
+    const expected = createHmac('sha256', appSecret).update(rawBody).digest('hex')
+    return safeEqual(signature.slice('sha256='.length), expected)
+  }
+
+  private telegramCredentials(integration: Integration) {
+    return asTelegramCredentials(this.cipher.decrypt(integration.credentials))
+  }
+
+  private whatsappCredentials(integration: Integration) {
+    return asWhatsappCredentials(this.cipher.decrypt(integration.credentials))
+  }
+
   private async deliver(integration: Integration, to: string, text: string): Promise<void> {
     if (integration.provider === IntegrationProvider.TELEGRAM) {
-      const { botToken } = asTelegramCredentials(integration.credentials)
+      const { botToken } = this.telegramCredentials(integration)
       await sendTelegramMessage(botToken, to, text)
       return
     }
 
-    const { accessToken, phoneNumberId } = asWhatsappCredentials(integration.credentials)
+    const { accessToken, phoneNumberId } = this.whatsappCredentials(integration)
     await sendWhatsappMessage({ accessToken, phoneNumberId }, to, text)
   }
 
@@ -218,15 +262,16 @@ export class IntegrationsService {
       return { botToken: dto.botToken }
     }
 
-    if (!dto.accessToken || !dto.phoneNumberId || !dto.verifyToken) {
+    if (!dto.accessToken || !dto.phoneNumberId || !dto.verifyToken || !dto.appSecret) {
       throw new BadRequestException(
-        'accessToken, phoneNumberId e verifyToken são obrigatórios para o WhatsApp.',
+        'accessToken, phoneNumberId, verifyToken e appSecret são obrigatórios para o WhatsApp.',
       )
     }
     return {
       accessToken: dto.accessToken,
       phoneNumberId: dto.phoneNumberId,
       verifyToken: dto.verifyToken,
+      appSecret: dto.appSecret,
     }
   }
 
@@ -244,16 +289,18 @@ export class IntegrationsService {
     if (
       dto.accessToken === undefined &&
       dto.phoneNumberId === undefined &&
-      dto.verifyToken === undefined
+      dto.verifyToken === undefined &&
+      dto.appSecret === undefined
     ) {
       return null
     }
 
-    const current = asWhatsappCredentials(existing.credentials)
+    const current = this.whatsappCredentials(existing)
     return {
       accessToken: dto.accessToken ?? current.accessToken,
       phoneNumberId: dto.phoneNumberId ?? current.phoneNumberId,
       verifyToken: dto.verifyToken ?? current.verifyToken,
+      appSecret: dto.appSecret ?? current.appSecret,
     }
   }
 
@@ -295,17 +342,16 @@ export class IntegrationsService {
 
   private maskCredentials(integration: Integration) {
     if (integration.provider === IntegrationProvider.TELEGRAM) {
-      const { botToken } = asTelegramCredentials(integration.credentials)
+      const { botToken } = this.telegramCredentials(integration)
       return { botToken: this.mask(botToken) }
     }
 
-    const { accessToken, phoneNumberId, verifyToken } = asWhatsappCredentials(
-      integration.credentials,
-    )
+    const { accessToken, phoneNumberId, verifyToken, appSecret } = this.whatsappCredentials(integration)
     return {
       accessToken: this.mask(accessToken),
       phoneNumberId,
-      verifyToken,
+      verifyToken: this.mask(verifyToken),
+      appSecret: this.mask(appSecret),
     }
   }
 

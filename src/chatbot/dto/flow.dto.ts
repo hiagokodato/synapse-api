@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { IsBoolean, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 
+import { MaxJsonSize } from '../../common/validators/max-json-size'
+
 export class CreateFlowDto {
   @ApiProperty({ example: 'Main flow' })
   @IsString()
@@ -14,6 +16,7 @@ export class CreateFlowDto {
   })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(150_000)
   definition?: Record<string, unknown>
 }
 
@@ -28,6 +31,7 @@ export class UpdateFlowDto {
   @ApiPropertyOptional({ example: { nodes: [], edges: [] } })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(150_000)
   definition?: Record<string, unknown>
 
   @ApiPropertyOptional({ description: 'Publishing bumps the flow version' })
@@ -43,6 +47,7 @@ export class ValidateFlowDto {
   })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(150_000)
   definition?: Record<string, unknown>
 }
 
@@ -53,6 +58,7 @@ export class SimulateFlowDto {
   })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(150_000)
   definition?: Record<string, unknown>
 
   @ApiPropertyOptional({
@@ -60,6 +66,7 @@ export class SimulateFlowDto {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   message?: string
 
   @ApiPropertyOptional({
@@ -67,6 +74,7 @@ export class SimulateFlowDto {
   })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(2_000)
   state?: { currentNodeId: string; awaitingInput: boolean; attempts: number }
 
   @ApiPropertyOptional({
@@ -74,5 +82,6 @@ export class SimulateFlowDto {
   })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(20_000)
   variables?: Record<string, string>
 }
