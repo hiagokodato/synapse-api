@@ -8,10 +8,13 @@ import {
   Param,
   Post,
   Query,
+  Req,
+  type RawBodyRequest,
 } from '@nestjs/common'
 import { ApiExcludeController } from '@nestjs/swagger'
 import { IntegrationProvider } from '@prisma/client'
 import { SkipThrottle } from '@nestjs/throttler'
+import type { Request } from 'express'
 
 import { IntegrationsService } from './integrations.service'
 import { parseTelegramUpdate } from './providers/telegram.client'
@@ -35,7 +38,8 @@ export class IntegrationsWebhookController {
       return { ok: true }
     }
 
-    if (secretHeader && secretHeader !== integration.webhookSecret) {
+    // O header é obrigatório: só o Telegram conhece o secret_token registrado no setWebhook.
+    if (!this.integrations.matchesTelegramSecret(integration, secretHeader)) {
       return { ok: true }
     }
 
@@ -70,12 +74,21 @@ export class IntegrationsWebhookController {
 
   @Post('whatsapp/:secret')
   @HttpCode(200)
-  async whatsapp(@Param('secret') secret: string, @Body() body: unknown) {
+  async whatsapp(
+    @Param('secret') secret: string,
+    @Headers('x-hub-signature-256') signature: string | undefined,
+    @Req() request: RawBodyRequest<Request>,
+    @Body() body: unknown,
+  ) {
     const integration = await this.integrations.resolveBySecret(
       IntegrationProvider.WHATSAPP,
       secret,
     )
-    if (!integration) {
+    // Só processa o que veio assinado pela Meta com o App Secret da integração.
+    if (
+      !integration ||
+      !this.integrations.matchesWhatsappSignature(integration, request.rawBody, signature)
+    ) {
       return { ok: true }
     }
 

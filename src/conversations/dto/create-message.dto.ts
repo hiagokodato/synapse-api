@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { MessageRole } from '@prisma/client'
-import { IsEnum, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
+import { IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 
+import { MaxJsonSize } from '../../common/validators/max-json-size'
+
+/** O papel (USER/BOT/SYSTEM) é definido pelo servidor, nunca pelo cliente. */
 export class CreateMessageDto {
   @ApiProperty({ example: 'Hello, I need help with my order.' })
   @IsString()
@@ -9,13 +11,9 @@ export class CreateMessageDto {
   @MaxLength(4000)
   content!: string
 
-  @ApiPropertyOptional({ enum: MessageRole, default: MessageRole.USER })
-  @IsOptional()
-  @IsEnum(MessageRole)
-  role?: MessageRole
-
   @ApiPropertyOptional({ example: { source: 'dashboard' } })
   @IsOptional()
   @IsObject()
+  @MaxJsonSize(4_000)
   metadata?: Record<string, unknown>
 }
